@@ -39,6 +39,7 @@ TIMEOUT = aiohttp.ClientTimeout(total=5, connect=3)
 
 # ========== গ্লোবাল কানেক্টর (ইভেন্ট লুপের ভিতরে তৈরি হবে) ==========
 connector = None
+MAX_RETRIES = 2  # সর্বোচ্চ ২ বার রিট্রাই
 
 def get_connector():
     """ইভেন্ট লুপ চলাকালীন connector তৈরি করে"""
@@ -303,7 +304,9 @@ class FreeFireBot:
         self.is_online = False
         self.Nm = "Unknown"
         self.session = None
-        self.room_created = False  # রুম তৈরি হয়েছে কিনা ট্র্যাক করতে
+        self.room_created = False
+        self.retry_count = 0  # রিট্রাই কাউন্ট
+        self.max_retries = MAX_RETRIES
 
     async def tcp_online(self, ip, port, auth_token):
         while self.is_running:
@@ -384,6 +387,77 @@ class FreeFireBot:
                 pass
             await asyncio.sleep(2)
 
+    async def try_login(self, session):
+        """একটি লগইন চেষ্টা করে - সফল হলে True, ব্যর্থ হলে False রিটার্ন করে"""
+        try:
+            # ১. গেস্ট টোকেন
+            open_id, access_token = await GeNeRaTeAccAccess(self.uid, self.password, session)
+            if not open_id:
+                return False
+                
+            # ২. MajorLogin
+            payload = await EncRypTMajoRLoGin(open_id, access_token)
+            response = await MajorLogin(payload, session)
+            if not response:
+                return False
+                
+            # ৩. পার্স রেসপন্স
+            auth_data = MajoRLoGinrEs_pb2.MajorLoginRes()
+            auth_data.ParseFromString(response)
+            
+            # ৪. GetLoginData
+            login_data = await GetLoginData(auth_data.url, payload, auth_data.token, session)
+            if not login_data:
+                return False
+                
+            # ৫. পার্স পোর্ট ডেটা
+            port_data = PorTs_pb2.GetLoginData()
+            port_data.ParseFromString(login_data)
+            
+            self.key = auth_data.key
+            self.iv = auth_data.iv
+            self.region = auth_data.region
+            
+            # ৬. JWT থেকে নাম নেওয়া
+            try:
+                dec_jwt = jwt.decode(auth_data.token, options={"verify_signature": False})
+                self.Nm = dec_jwt.get('nickname') or "Unknown"
+            except Exception:
+                self.Nm = "Unknown"
+            
+            # ৭. IP/Port সেট করা
+            online_ip, online_port = port_data.Online_IP_Port.split(":")
+            chat_ip, chat_port = port_data.AccountIP_Port.split(":")
+            
+            # ৮. Auth টোকেন তৈরি
+            auth_token = await xAuThSTarTuP(
+                auth_data.account_uid, 
+                auth_data.token, 
+                auth_data.timestamp, 
+                auth_data.key, 
+                auth_data.iv
+            )
+            
+            # ৯. TCP কানেকশন (প্যারালেল)
+            ready = asyncio.Event()
+            t1 = asyncio.create_task(
+                self.tcp_chat(chat_ip, chat_port, auth_token, auth_data.key, auth_data.iv, ready)
+            )
+            self.tasks.append(t1)
+            await ready.wait()
+            
+            t2 = asyncio.create_task(
+                self.tcp_online(online_ip, online_port, auth_token)
+            )
+            self.tasks.append(t2)
+            
+            await asyncio.gather(t1, t2, return_exceptions=True)
+            
+            return True  # সফল লগইন
+            
+        except Exception as e:
+            return False
+
     async def keep_online_forever(self):
         # 🔥 প্রতিটি বটের জন্য আলাদা সেশন
         connector = get_connector()
@@ -391,81 +465,35 @@ class FreeFireBot:
             self.session = session
             
             while self.is_running:
-                try:
-                    # ১. গেস্ট টোকেন
-                    open_id, access_token = await GeNeRaTeAccAccess(self.uid, self.password, session)
-                    if not open_id:
-                        await asyncio.sleep(3)
-                        continue
-                        
-                    # ২. MajorLogin
-                    payload = await EncRypTMajoRLoGin(open_id, access_token)
-                    response = await MajorLogin(payload, session)
-                    if not response:
-                        await asyncio.sleep(3)
-                        continue
-                        
-                    # ৩. পার্স রেসপন্স
-                    auth_data = MajoRLoGinrEs_pb2.MajorLoginRes()
-                    auth_data.ParseFromString(response)
-                    
-                    # ৪. GetLoginData
-                    login_data = await GetLoginData(auth_data.url, payload, auth_data.token, session)
-                    if not login_data:
-                        await asyncio.sleep(3)
-                        continue
-                        
-                    # ৫. পার্স পোর্ট ডেটা
-                    port_data = PorTs_pb2.GetLoginData()
-                    port_data.ParseFromString(login_data)
-                    
-                    self.key = auth_data.key
-                    self.iv = auth_data.iv
-                    self.region = auth_data.region
-                    
-                    # ৬. JWT থেকে নাম নেওয়া
-                    try:
-                        dec_jwt = jwt.decode(auth_data.token, options={"verify_signature": False})
-                        self.Nm = dec_jwt.get('nickname') or "Unknown"
-                    except Exception:
-                        self.Nm = "Unknown"
-                    
-                    # ৭. IP/Port সেট করা
-                    online_ip, online_port = port_data.Online_IP_Port.split(":")
-                    chat_ip, chat_port = port_data.AccountIP_Port.split(":")
-                    
-                    # ৮. Auth টোকেন তৈরি
-                    auth_token = await xAuThSTarTuP(
-                        auth_data.account_uid, 
-                        auth_data.token, 
-                        auth_data.timestamp, 
-                        auth_data.key, 
-                        auth_data.iv
-                    )
-                    
-                    # ৯. TCP কানেকশন (প্যারালেল)
-                    ready = asyncio.Event()
-                    t1 = asyncio.create_task(
-                        self.tcp_chat(chat_ip, chat_port, auth_token, auth_data.key, auth_data.iv, ready)
-                    )
-                    self.tasks.append(t1)
-                    await ready.wait()
-                    
-                    t2 = asyncio.create_task(
-                        self.tcp_online(online_ip, online_port, auth_token)
-                    )
-                    self.tasks.append(t2)
-                    
-                    await asyncio.gather(t1, t2, return_exceptions=True)
-                    
-                except Exception as e:
+                # লগইন চেষ্টা
+                login_success = await self.try_login(session)
+                
+                if login_success:
+                    self.retry_count = 0  # সফল হলে রিট্রাই কাউন্ট রিসেট
+                else:
+                    self.retry_count += 1
                     console.print(Panel(
-                        f"[bold red]UID :[/bold red] {self.uid}\n[bold red]ত্রুটি:[/bold red] {e}",
-                        title=f"[bold red]❌ BOT ERROR ({self.server.upper()})[/bold red]",
-                        border_style="red",
+                        f"[bold yellow]🆔 UID        ::[/bold yellow] {self.uid}\n"
+                        f"[bold yellow]📝 চেষ্টা      ::[/bold yellow] {self.retry_count}/{self.max_retries}",
+                        title="[bold yellow]⚠️ LOGIN FAILED[/bold yellow]",
+                        border_style="yellow",
                         expand=False
                     ))
-                await asyncio.sleep(3)
+                    
+                    # যদি ২ বার ট্রাই ব্যর্থ হয়, তাহলে স্কিপ করে পরবর্তী আইডিতে যাবে
+                    if self.retry_count >= self.max_retries:
+                        console.print(Panel(
+                            f"[bold red]🆔 UID        ::[/bold red] {self.uid}\n"
+                            f"[bold red]📝 স্ট্যাটাস   ::[/bold red] স্কিপ করা হয়েছে (২ বার ব্যর্থ)",
+                            title="[bold red]❌ SKIPPED[/bold red]",
+                            border_style="red",
+                            expand=False
+                        ))
+                        break  # লুপ থেকে বের হয়ে যায় (এই আইডি স্কিপ)
+                
+                # লগইন ব্যর্থ হলে ৩ সেকেন্ড অপেক্ষা
+                if not login_success:
+                    await asyncio.sleep(3)
 
 
 # ========== ULTRA FAST ACCOUNT LOADER ==========
@@ -512,6 +540,7 @@ async def main_async():
     startup_text = (
         f"[bold cyan]👥 মোট লোড করা আইডি   ::[/bold cyan] {total_accounts} টি\n"
         f"[bold cyan]🇧🇩 BD সার্ভার আইডি     ::[/bold cyan] {bd_count} টি\n"
+        f"[bold cyan]🔄 রিট্রাই লিমিট       ::[/bold cyan] {MAX_RETRIES} বার\n"
         f"[bold cyan]🏠 রুমের নাম             ::[/bold cyan] ARIYAN\n"
         f"[bold cyan]✨ কালার কোড প্যাটার্ন    ::[/bold cyan] র‍্যান্ডম কালার\n"
         f"[bold cyan]🚦 সার্ভার স্ট্যাটাস       ::[/bold cyan] [bold green]🚀 ULTRA FAST BOOTING...[/bold green]"
@@ -524,7 +553,7 @@ async def main_async():
         expand=False
     ))
 
-    # 🚀 ৩. সব অ্যাকাউন্ট একসাথে স্টার্ট
+    # 🚀 ৩. সব অ্যাকাউন্ট একসাথে স্টার্ট (থ্রেডেড)
     tasks = []
     for uid, pwd, server in accounts:
         bot = FreeFireBot(uid=uid, password=pwd, server=server)
