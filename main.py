@@ -326,7 +326,7 @@ class FreeFireBot:
                 # 🚀 রুম তৈরি (শুধুমাত্র একবার)
                 if not self.room_created and self.key and self.iv:
                     selected_color = get_random_color()
-                    room_name = f"—͞[B]{selected_color}Ⓥ"
+                    room_name = f"—͞{selected_color}ARIYAN"
                     
                     room_pkt = await build_room_packet(room_name, self.key, self.iv)
                     writer.write(room_pkt)
