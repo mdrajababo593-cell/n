@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ===================================================================
-# 🔥 ARIYAN BOT - BATCH PROCESSING (10 by 10) 🔥
+# 🔥 ARIYAN BOT - MASSIVE SCALING (27K+ ACCOUNTS) 🔥
 # ===================================================================
 
 import subprocess
@@ -14,6 +14,7 @@ import random
 import asyncio
 import threading
 from datetime import datetime
+from collections import deque
 
 import aiohttp
 import jwt
@@ -22,7 +23,7 @@ from Crypto.Util.Padding import pad, unpad
 from rich.console import Console
 from rich.panel import Panel
 from rich.align import Align
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from cfonts import render
 
 # Protobuf files
@@ -35,15 +36,21 @@ console = Console()
 # ========== CONFIG ==========
 login_url, ob, version = "https://loginbp.ggpolarbear.com/", "OB54", "1.126.7"
 
-# 🚀 ব্যাচ প্রসেসিং কনফিগারেশন
+# 🚀 ম্যাসিভ স্কেলিং কনফিগারেশন (২৭ হাজার+ আইডির জন্য)
 BATCH_SIZE = 10  # একসাথে ১০টি আইডি
-BATCH_DELAY = 1  # ব্যাচ শেষে ৩ সেকেন্ড বিরতি
-TIMEOUT = aiohttp.ClientTimeout(total=10, connect=5)
-MAX_RETRIES = 999
-RECONNECT_DELAY = 0.5
+BATCH_DELAY = 0.5  # ব্যাচের মধ্যে ০.৫ সেকেন্ড
+ACCOUNT_DELAY = 0.05  # প্রতিটি আইডির মধ্যে ডেলেই
+MAX_CONCURRENT = 10  # সর্বোচ্চ ১০টি কানেকশন
+TIMEOUT = aiohttp.ClientTimeout(total=8, connect=4)
+RECONNECT_DELAY = 0.3
+KEEP_ALIVE_INTERVAL = 30  # ৩০ সেকেন্ড পর পর পিং
 
 # ========== গ্লোবাল কানেক্টর ==========
 connector = None
+active_accounts = 0
+total_accounts = 0
+online_count = 0
+account_queue = deque()
 
 def get_connector():
     global connector
@@ -52,7 +59,7 @@ def get_connector():
             limit=10,
             limit_per_host=10,
             ttl_dns_cache=60,
-            force_close=True,
+            force_close=False,
             enable_cleanup_closed=True
         )
     return connector
@@ -66,7 +73,7 @@ def Uaa():
 
 Hr = {
     'User-Agent': Uaa(),
-    'Connection': "close",
+    'Connection': "keep-alive",
     'Accept-Encoding': "gzip",
     'Content-Type': "application/x-www-form-urlencoded",
     'X-Unity-Version': "2018.4.11f1",
@@ -75,7 +82,7 @@ Hr = {
 }
 
 def get_random_color():
-    colors = ["[FF0000]", "[00FF00]", "[0000FF]", "[FFFF00]", "[FF00FF]", "[00FFFF]", "[FFFFFF]", "[FFA500]"]
+    colors = ["[FF0000]", "[00FF00]", "[0000FF]", "[FFFF00]", "[FF00FF]", "[00FFFF]", "[FFFFFF]", "[FFA500]", "[FF4500]", "[7B68EE]"]
     return random.choice(colors)
 
 async def EnC_Vr(N):
@@ -295,13 +302,12 @@ async def xAuThSTarTuP(TarGeT, token, timestamp, key, iv):
     return f"0115{headers}{uid_hex}{encrypted_timestamp}00000{encrypted_packet_length}{encrypted_packet}"
 
 
-# ========== BATCH BOT ==========
+# ========== MASSIVE SCALING BOT ==========
 class FreeFireBot:
-    def __init__(self, uid, password, server='bd', batch_id=0):
+    def __init__(self, uid, password, server='bd'):
         self.uid = uid
         self.password = password
         self.server = server
-        self.batch_id = batch_id
         self.is_running = True
         self.online_writer = None
         self.reader = None
@@ -313,8 +319,8 @@ class FreeFireBot:
         self.Nm = "Unknown"
         self.session = None
         self.room_created = False
-        self.reconnect_count = 0
-        self.last_online_time = 0
+        self.retry_count = 0
+        self.last_ping = 0
         self.is_connected = False
 
     async def tcp_online(self, ip, port, auth_token):
@@ -327,8 +333,7 @@ class FreeFireBot:
                 self.online_writer = writer
                 self.is_online = True
                 self.is_connected = True
-                self.reconnect_count = 0
-                self.last_online_time = time.time()
+                self.retry_count = 0
                 
                 if not self.room_created and self.key and self.iv:
                     selected_color = get_random_color()
@@ -338,16 +343,13 @@ class FreeFireBot:
                     await writer.drain()
                     self.room_created = True
                     
-                    console.print(Panel(
-                        f"[bold green]🆔 UID     ::[/bold green] {self.uid}\n"
-                        f"[bold green]👤 নাম     ::[/bold green] {self.Nm}\n"
-                        f"[bold green]🏠 রুম     ::[/bold green] {room_name}\n"
-                        f"[bold green]🌐 IP      ::[/bold green] {ip}:{port}\n"
-                        f"[bold green]📦 ব্যাচ   ::[/bold green] {self.batch_id}",
-                        title="[bold bright_green]✅ অনলাইন[/bold bright_green]",
-                        border_style="bright_green",
-                        expand=False
-                    ))
+                    global online_count
+                    online_count += 1
+                    
+                    if online_count % 100 == 0:  # প্রতি ১০০ আইডিতে একবার দেখায়
+                        console.print(f"[green]✅ {online_count} টি আইডি অনলাইন হয়েছে[/green]")
+                
+                self.last_ping = time.time()
                 
                 while self.is_running and self.is_online:
                     try:
@@ -355,19 +357,22 @@ class FreeFireBot:
                         if data:
                             pass
                     except asyncio.TimeoutError:
-                        if self.is_online:
-                            continue
+                        # পিং পাঠানো
+                        if time.time() - self.last_ping > KEEP_ALIVE_INTERVAL:
+                            try:
+                                writer.write(b'\x00')
+                                await writer.drain()
+                                self.last_ping = time.time()
+                            except:
+                                break
+                        continue
                     except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, OSError):
                         break
                     except Exception:
                         break
                 
-                if self.is_running:
-                    console.print(f"[yellow]🔄 UID {self.uid} - রিকানেক্ট...[/yellow]")
-                
-            except Exception as e:
-                if self.is_running:
-                    pass
+            except Exception:
+                pass
             
             self.online_writer = None
             self.reader = None
@@ -468,32 +473,18 @@ class FreeFireBot:
                     login_success = await self.try_login(session)
                     
                     if login_success:
-                        console.print(f"[green]✅ UID {self.uid} - অনলাইন[/green]")
                         await asyncio.sleep(2)
                     else:
-                        console.print(f"[yellow]⚠️ UID {self.uid} - পুনরায় চেষ্টা...[/yellow]")
+                        self.retry_count += 1
+                        if self.retry_count % 10 == 0:
+                            console.print(f"[yellow]⚠️ UID {self.uid} - {self.retry_count} বার চেষ্টা[/yellow]")
                         await asyncio.sleep(RECONNECT_DELAY)
                         
                 except Exception:
                     await asyncio.sleep(RECONNECT_DELAY)
 
 
-# ========== BATCH PROCESSOR ==========
-async def process_batch(batch_accounts, batch_id):
-    """একটি ব্যাচ প্রসেস করে"""
-    console.print(f"\n[bold cyan]📦 ব্যাচ {batch_id} প্রসেসিং শুরু... ({len(batch_accounts)} টি আইডি)[/bold cyan]")
-    
-    tasks = []
-    for uid, pwd, server in batch_accounts:
-        bot = FreeFireBot(uid=uid, password=pwd, server=server, batch_id=batch_id)
-        task = asyncio.create_task(bot.keep_online_forever())
-        tasks.append(task)
-        await asyncio.sleep(0.2)  # প্রতিটি আইডির মধ্যে ০.২ সেকেন্ড
-    
-    # এই ব্যাচের সব আইডি একসাথে চালানো
-    await asyncio.gather(*tasks, return_exceptions=True)
-
-
+# ========== MASSIVE LOADER ==========
 async def load_accounts():
     """bd.txt থেকে সব অ্যাকাউন্ট লোড করে"""
     accounts = []
@@ -515,11 +506,21 @@ async def load_accounts():
     return accounts
 
 
+# ========== ACCOUNT PROCESSOR ==========
+async def process_account(uid, pwd, server, semaphore, progress, task_id):
+    """একটি অ্যাকাউন্ট প্রসেস করে"""
+    async with semaphore:
+        bot = FreeFireBot(uid=uid, password=pwd, server=server)
+        await bot.keep_online_forever()
+        progress.update(task_id, advance=1)
+
+
 # ========== MAIN ==========
 async def main_async():
     print(render('ARIYAN', colors=['white', 'red'], align='center'))
     
     # সব অ্যাকাউন্ট লোড
+    console.print("[bold cyan]📂 অ্যাকাউন্ট লোড হচ্ছে...[/bold cyan]")
     all_accounts = await load_accounts()
     
     if not all_accounts:
@@ -533,49 +534,72 @@ async def main_async():
         return
     
     total_accounts = len(all_accounts)
-    
-    # ব্যাচে ভাগ করা
-    batches = []
-    for i in range(0, total_accounts, BATCH_SIZE):
-        batch = all_accounts[i:i+BATCH_SIZE]
-        batches.append(batch)
-    
-    total_batches = len(batches)
+    global online_count
+    online_count = 0
     
     startup_text = (
-        f"[bold cyan]👥 মোট আইডি        ::[/bold cyan] {total_accounts} টি\n"
+        f"[bold cyan]👥 মোট আইডি        ::[/bold cyan] {total_accounts:,} টি\n"
+        f"[bold cyan]🔢 কনকারেন্ট       ::[/bold cyan] {MAX_CONCURRENT} টি\n"
         f"[bold cyan]📦 ব্যাচ সাইজ      ::[/bold cyan] {BATCH_SIZE} টি\n"
-        f"[bold cyan]📋 মোট ব্যাচ       ::[/bold cyan] {total_batches} টি\n"
         f"[bold cyan]⏱️ ব্যাচ ডেলেই     ::[/bold cyan] {BATCH_DELAY} সেকেন্ড\n"
+        f"[bold cyan]⚡ রিকানেক্ট       ::[/bold cyan] {RECONNECT_DELAY} সেকেন্ড\n"
         f"[bold cyan]💾 RAM প্রয়োজন    ::[/bold cyan] ~512MB\n"
         f"[bold cyan]🏠 রুমের নাম       ::[/bold cyan] ARIYAN"
     )
     console.print(Panel(
         Align.center(startup_text), 
-        title="[bold red]🛡️ ARIYAN BATCH PROCESSOR 🛡️[/bold red]", 
+        title="[bold red]🛡️ ARIYAN MASSIVE SCALING 🛡️[/bold red]", 
         border_style="bright_red", 
         padding=(1, 2), 
         expand=False
     ))
     
-    console.print(f"\n[bold green]🚀 ব্যাচ প্রসেসিং শুরু হচ্ছে...[/bold green]\n")
+    console.print(f"\n[bold green]🚀 {total_accounts:,} টি আইডি অনলাইন করা হচ্ছে...[/bold green]\n")
     
-    # ব্যাচ অনুযায়ী প্রসেস করা
-    for i, batch in enumerate(batches, 1):
-        console.print(f"\n[bold yellow]═══════════════════════════════════════════[/bold yellow]")
-        console.print(f"[bold cyan]📦 ব্যাচ {i}/{total_batches} শুরু[/bold cyan]")
-        console.print(f"[bold yellow]═══════════════════════════════════════════[/bold yellow]")
+    # সেমাফোর তৈরি
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    
+    # প্রগ্রেস বার
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TextColumn("• {task.fields[online]} অনলাইন"),
+        console=console
+    ) as progress:
         
-        await process_batch(batch, i)
+        task = progress.add_task(
+            "[cyan]অনলাইন হচ্ছে...", 
+            total=total_accounts,
+            online=0
+        )
         
-        # শেষ ব্যাচ না হলে ডেলেই
-        if i < total_batches:
-            console.print(f"\n[bold yellow]⏳ {BATCH_DELAY} সেকেন্ড বিরতি... পরবর্তী ব্যাচের জন্য[/bold yellow]")
-            await asyncio.sleep(BATCH_DELAY)
+        # সব অ্যাকাউন্ট প্রসেস
+        tasks = []
+        for i, (uid, pwd, server) in enumerate(all_accounts):
+            task_id = i
+            task_coro = process_account(uid, pwd, server, semaphore, progress, task)
+            tasks.append(asyncio.create_task(task_coro))
+            
+            # প্রতি ব্যাচে ডেলেই
+            if (i + 1) % BATCH_SIZE == 0:
+                progress.update(task, online=online_count)
+                await asyncio.sleep(BATCH_DELAY)
+            
+            # প্রতি ১০০০ আইডিতে স্ট্যাটাস শো
+            if (i + 1) % 1000 == 0:
+                console.print(f"[cyan]📊 {i+1}/{total_accounts} টি আইডি প্রসেসিং... ({online_count} অনলাইন)[/cyan]")
+        
+        # সব টাস্ক সম্পন্ন হওয়া পর্যন্ত অপেক্ষা
+        await asyncio.gather(*tasks, return_exceptions=True)
+        
+        progress.update(task, online=online_count)
     
-    console.print(f"\n[bold green]✅ সব ব্যাচ প্রসেস সম্পন্ন! সব আইডি অনলাইন![/bold green]")
+    console.print(f"\n[bold green]✅ সব আইডি অনলাইন! মোট: {online_count:,} টি[/bold green]")
     
-    # সব আইডি অনলাইন রাখার জন্য চিরকাল অপেক্ষা
+    # চিরকাল অপেক্ষা (সব আইডি অনলাইন রাখার জন্য)
+    console.print("[bold yellow]⏳ সব আইডি অনলাইন রাখা হচ্ছে... (Ctrl+C দিয়ে বন্ধ করুন)[/bold yellow]")
     await asyncio.Event().wait()
 
 
