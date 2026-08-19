@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ===================================================================
-# 🔥 ARIYAN BOT - ULTRA LIGHTNING FAST RECONNECT (512MB OPTIMIZED) 🔥
+# 🔥 ARIYAN BOT - BATCH PROCESSING (10 by 10) 🔥
 # ===================================================================
 
 import subprocess
@@ -22,6 +22,7 @@ from Crypto.Util.Padding import pad, unpad
 from rich.console import Console
 from rich.panel import Panel
 from rich.align import Align
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from cfonts import render
 
 # Protobuf files
@@ -34,15 +35,15 @@ console = Console()
 # ========== CONFIG ==========
 login_url, ob, version = "https://loginbp.ggpolarbear.com/", "OB54", "1.126.7"
 
-# 🚀 লাইটওয়েট + সুপার ফাস্ট রিকানেক্ট
+# 🚀 ব্যাচ প্রসেসিং কনফিগারেশন
+BATCH_SIZE = 10  # একসাথে ১০টি আইডি
+BATCH_DELAY = 1  # ব্যাচ শেষে ৩ সেকেন্ড বিরতি
 TIMEOUT = aiohttp.ClientTimeout(total=10, connect=5)
-MAX_CONCURRENT = 10
-MAX_RETRIES = 999  # কখনো স্কিপ করবে না
-RECONNECT_DELAY = 0.5  # মাত্র ০.৫ সেকেন্ড
+MAX_RETRIES = 999
+RECONNECT_DELAY = 0.5
 
 # ========== গ্লোবাল কানেক্টর ==========
 connector = None
-semaphore = None
 
 def get_connector():
     global connector
@@ -55,12 +56,6 @@ def get_connector():
             enable_cleanup_closed=True
         )
     return connector
-
-def get_semaphore():
-    global semaphore
-    if semaphore is None:
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT)
-    return semaphore
 
 # ---------- HELPERS ----------
 def Uaa():
@@ -300,12 +295,13 @@ async def xAuThSTarTuP(TarGeT, token, timestamp, key, iv):
     return f"0115{headers}{uid_hex}{encrypted_timestamp}00000{encrypted_packet_length}{encrypted_packet}"
 
 
-# ========== LIGHTNING FAST BOT ==========
+# ========== BATCH BOT ==========
 class FreeFireBot:
-    def __init__(self, uid, password, server='bd'):
+    def __init__(self, uid, password, server='bd', batch_id=0):
         self.uid = uid
         self.password = password
         self.server = server
+        self.batch_id = batch_id
         self.is_running = True
         self.online_writer = None
         self.reader = None
@@ -319,21 +315,21 @@ class FreeFireBot:
         self.room_created = False
         self.reconnect_count = 0
         self.last_online_time = 0
+        self.is_connected = False
 
     async def tcp_online(self, ip, port, auth_token):
         while self.is_running:
             try:
-                # সুপার ফাস্ট কানেকশন
                 reader, writer = await asyncio.open_connection(ip, int(port))
                 writer.write(bytes.fromhex(auth_token))
                 await writer.drain()
                 self.reader = reader
                 self.online_writer = writer
                 self.is_online = True
+                self.is_connected = True
                 self.reconnect_count = 0
                 self.last_online_time = time.time()
                 
-                # রুম তৈরি (শুধু একবার)
                 if not self.room_created and self.key and self.iv:
                     selected_color = get_random_color()
                     room_name = f"—͞[B]{selected_color}Ⓥ"
@@ -346,45 +342,37 @@ class FreeFireBot:
                         f"[bold green]🆔 UID     ::[/bold green] {self.uid}\n"
                         f"[bold green]👤 নাম     ::[/bold green] {self.Nm}\n"
                         f"[bold green]🏠 রুম     ::[/bold green] {room_name}\n"
-                        f"[bold green]🌐 IP      ::[/bold green] {ip}:{port}",
+                        f"[bold green]🌐 IP      ::[/bold green] {ip}:{port}\n"
+                        f"[bold green]📦 ব্যাচ   ::[/bold green] {self.batch_id}",
                         title="[bold bright_green]✅ অনলাইন[/bold bright_green]",
                         border_style="bright_green",
                         expand=False
                     ))
                 
-                # কানেকশন লাইভ রাখা - তাত্ক্ষণিক রিকানেক্টের জন্য
                 while self.is_running and self.is_online:
                     try:
-                        # দ্রুত ডেটা চেক
                         data = await asyncio.wait_for(self.reader.read(65536), timeout=2.0)
                         if data:
-                            # ডেটা পেলে কিছু করা যায় না
                             pass
                     except asyncio.TimeoutError:
-                        # টাইমআউট হলে কানেকশন চেক
                         if self.is_online:
-                            # সব ঠিক আছে
                             continue
                     except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, OSError):
-                        # কানেকশন ড্রপ - সাথে সাথে রিকানেক্ট
                         break
                     except Exception:
                         break
                 
-                # কানেকশন ড্রপ হলে সাথে সাথে রিকানেক্ট
                 if self.is_running:
-                    console.print(f"[yellow]🔄 UID {self.uid} - রিকানেক্ট হচ্ছে...[/yellow]")
+                    console.print(f"[yellow]🔄 UID {self.uid} - রিকানেক্ট...[/yellow]")
                 
             except Exception as e:
                 if self.is_running:
-                    console.print(f"[red]⚠️ UID {self.uid} - রিকানেক্ট: {e}[/red]")
+                    pass
             
-            # ক্লিনআপ
             self.online_writer = None
             self.reader = None
             self.is_online = False
-            
-            # তাত্ক্ষণিক রিকানেক্ট - মাত্র ০.৫ সেকেন্ড
+            self.is_connected = False
             await asyncio.sleep(RECONNECT_DELAY)
 
     async def tcp_chat(self, ip, port, auth_token, key, iv, ready_event):
@@ -411,7 +399,6 @@ class FreeFireBot:
 
     async def try_login(self, session):
         try:
-            # ফাস্ট লগইন
             open_id, access_token = await GeNeRaTeAccAccess(self.uid, self.password, session)
             if not open_id:
                 return False
@@ -473,36 +460,45 @@ class FreeFireBot:
 
     async def keep_online_forever(self):
         connector = get_connector()
-        semaphore = get_semaphore()
-        
-        async with semaphore:
-            async with aiohttp.ClientSession(timeout=TIMEOUT, connector=connector) as session:
-                self.session = session
-                
-                while self.is_running:
-                    try:
-                        # লগইন চেষ্টা
-                        login_success = await self.try_login(session)
-                        
-                        if login_success:
-                            console.print(f"[green]✅ UID {self.uid} - অনলাইন[/green]")
-                            # অনলাইন থাকা অবস্থায় প্রতি ২ সেকেন্ড পর চেক
-                            await asyncio.sleep(2)
-                        else:
-                            # ব্যর্থ হলে সাথে সাথে পুনরায় চেষ্টা
-                            console.print(f"[yellow]⚠️ UID {self.uid} - পুনরায় চেষ্টা...[/yellow]")
-                            await asyncio.sleep(RECONNECT_DELAY)
-                            
-                    except Exception as e:
-                        console.print(f"[red]❌ UID {self.uid} - এরর: {e}[/red]")
+        async with aiohttp.ClientSession(timeout=TIMEOUT, connector=connector) as session:
+            self.session = session
+            
+            while self.is_running:
+                try:
+                    login_success = await self.try_login(session)
+                    
+                    if login_success:
+                        console.print(f"[green]✅ UID {self.uid} - অনলাইন[/green]")
+                        await asyncio.sleep(2)
+                    else:
+                        console.print(f"[yellow]⚠️ UID {self.uid} - পুনরায় চেষ্টা...[/yellow]")
                         await asyncio.sleep(RECONNECT_DELAY)
+                        
+                except Exception:
+                    await asyncio.sleep(RECONNECT_DELAY)
 
 
-# ========== ACCOUNT LOADER ==========
-async def load_and_start():
-    accounts = []
+# ========== BATCH PROCESSOR ==========
+async def process_batch(batch_accounts, batch_id):
+    """একটি ব্যাচ প্রসেস করে"""
+    console.print(f"\n[bold cyan]📦 ব্যাচ {batch_id} প্রসেসিং শুরু... ({len(batch_accounts)} টি আইডি)[/bold cyan]")
     
+    tasks = []
+    for uid, pwd, server in batch_accounts:
+        bot = FreeFireBot(uid=uid, password=pwd, server=server, batch_id=batch_id)
+        task = asyncio.create_task(bot.keep_online_forever())
+        tasks.append(task)
+        await asyncio.sleep(0.2)  # প্রতিটি আইডির মধ্যে ০.২ সেকেন্ড
+    
+    # এই ব্যাচের সব আইডি একসাথে চালানো
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def load_accounts():
+    """bd.txt থেকে সব অ্যাকাউন্ট লোড করে"""
+    accounts = []
     filename = "bd.txt"
+    
     if os.path.exists(filename):
         try:
             with open(filename, "r", encoding="utf-8") as f:
@@ -519,12 +515,14 @@ async def load_and_start():
     return accounts
 
 
-# ========== STARTUP ==========
+# ========== MAIN ==========
 async def main_async():
     print(render('ARIYAN', colors=['white', 'red'], align='center'))
     
-    accounts = await load_and_start()
-    if not accounts:
+    # সব অ্যাকাউন্ট লোড
+    all_accounts = await load_accounts()
+    
+    if not all_accounts:
         console.print(Panel(
             "[bold red]কোনো আইডি পাওয়া যায়নি![/bold red]\n"
             "bd.txt ফাইলে UID:PASSWORD যোগ করুন",
@@ -533,33 +531,53 @@ async def main_async():
             expand=False
         ))
         return
-
-    total_accounts = len(accounts)
+    
+    total_accounts = len(all_accounts)
+    
+    # ব্যাচে ভাগ করা
+    batches = []
+    for i in range(0, total_accounts, BATCH_SIZE):
+        batch = all_accounts[i:i+BATCH_SIZE]
+        batches.append(batch)
+    
+    total_batches = len(batches)
     
     startup_text = (
         f"[bold cyan]👥 মোট আইডি        ::[/bold cyan] {total_accounts} টি\n"
-        f"[bold cyan]🔢 কনকারেন্ট       ::[/bold cyan] {MAX_CONCURRENT} টি\n"
-        f"[bold cyan]⚡ রিকানেক্ট       ::[/bold cyan] {RECONNECT_DELAY} সেকেন্ড\n"
+        f"[bold cyan]📦 ব্যাচ সাইজ      ::[/bold cyan] {BATCH_SIZE} টি\n"
+        f"[bold cyan]📋 মোট ব্যাচ       ::[/bold cyan] {total_batches} টি\n"
+        f"[bold cyan]⏱️ ব্যাচ ডেলেই     ::[/bold cyan] {BATCH_DELAY} সেকেন্ড\n"
         f"[bold cyan]💾 RAM প্রয়োজন    ::[/bold cyan] ~512MB\n"
         f"[bold cyan]🏠 রুমের নাম       ::[/bold cyan] ARIYAN"
     )
     console.print(Panel(
         Align.center(startup_text), 
-        title="[bold red]🛡️ ARIYAN LIGHTNING FAST 🛡️[/bold red]", 
+        title="[bold red]🛡️ ARIYAN BATCH PROCESSOR 🛡️[/bold red]", 
         border_style="bright_red", 
         padding=(1, 2), 
         expand=False
     ))
-
-    # সব আইডি একসাথে স্টার্ট
-    tasks = []
-    for uid, pwd, server in accounts:
-        bot = FreeFireBot(uid=uid, password=pwd, server=server)
-        task = asyncio.create_task(bot.keep_online_forever())
-        tasks.append(task)
-        await asyncio.sleep(0.1)
     
-    await asyncio.gather(*tasks, return_exceptions=True)
+    console.print(f"\n[bold green]🚀 ব্যাচ প্রসেসিং শুরু হচ্ছে...[/bold green]\n")
+    
+    # ব্যাচ অনুযায়ী প্রসেস করা
+    for i, batch in enumerate(batches, 1):
+        console.print(f"\n[bold yellow]═══════════════════════════════════════════[/bold yellow]")
+        console.print(f"[bold cyan]📦 ব্যাচ {i}/{total_batches} শুরু[/bold cyan]")
+        console.print(f"[bold yellow]═══════════════════════════════════════════[/bold yellow]")
+        
+        await process_batch(batch, i)
+        
+        # শেষ ব্যাচ না হলে ডেলেই
+        if i < total_batches:
+            console.print(f"\n[bold yellow]⏳ {BATCH_DELAY} সেকেন্ড বিরতি... পরবর্তী ব্যাচের জন্য[/bold yellow]")
+            await asyncio.sleep(BATCH_DELAY)
+    
+    console.print(f"\n[bold green]✅ সব ব্যাচ প্রসেস সম্পন্ন! সব আইডি অনলাইন![/bold green]")
+    
+    # সব আইডি অনলাইন রাখার জন্য চিরকাল অপেক্ষা
+    await asyncio.Event().wait()
+
 
 def main():
     if sys.platform == 'win32':
