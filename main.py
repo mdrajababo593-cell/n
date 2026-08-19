@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ===================================================================
-# 🔥 ARIYAN BOT - DUAL-SERVER ULTRA FAST KEEP ALIVE & ROOM CREATOR 🔥
+# 🔥 ARIYAN BOT - ULTRA LIGHTNING FAST RECONNECT (512MB OPTIMIZED) 🔥
 # ===================================================================
 
 import subprocess
@@ -34,36 +34,44 @@ console = Console()
 # ========== CONFIG ==========
 login_url, ob, version = "https://loginbp.ggpolarbear.com/", "OB54", "1.126.7"
 
-# 🚀 টাইমআউট কমিয়ে দেওয়া হয়েছে (স্পিড বাড়ানোর জন্য)
+# 🚀 লাইটওয়েট + সুপার ফাস্ট রিকানেক্ট
 TIMEOUT = aiohttp.ClientTimeout(total=10, connect=5)
+MAX_CONCURRENT = 10
+MAX_RETRIES = 999  # কখনো স্কিপ করবে না
+RECONNECT_DELAY = 0.5  # মাত্র ০.৫ সেকেন্ড
 
-# ========== গ্লোবাল কানেক্টর (ইভেন্ট লুপের ভিতরে তৈরি হবে) ==========
+# ========== গ্লোবাল কানেক্টর ==========
 connector = None
-MAX_RETRIES = 2  # সর্বোচ্চ ২ বার রিট্রাই
+semaphore = None
 
 def get_connector():
-    """ইভেন্ট লুপ চলাকালীন connector তৈরি করে"""
     global connector
     if connector is None:
         connector = aiohttp.TCPConnector(
-            limit=100,
-            limit_per_host=100,
-            ttl_dns_cache=300,
-            force_close=False,
+            limit=10,
+            limit_per_host=10,
+            ttl_dns_cache=60,
+            force_close=True,
             enable_cleanup_closed=True
         )
     return connector
 
+def get_semaphore():
+    global semaphore
+    if semaphore is None:
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    return semaphore
+
 # ---------- HELPERS ----------
 def Uaa():
     versions = ['5.0.1B2','5.1.0P1','5.2.0B1']
-    models = ['SM-A125F','Redmi 9A','POCO M3','SM-G998B','iPhone14,2']
-    android = random.choice(['11','12','13','14'])
+    models = ['SM-A125F','Redmi 9A','POCO M3','SM-G998B']
+    android = random.choice(['11','12','13'])
     return f"GarenaMSDK/{random.choice(versions)}({random.choice(models)};Android {android};en-US;USA;)"
 
 Hr = {
     'User-Agent': Uaa(),
-    'Connection': "Keep-Alive",
+    'Connection': "close",
     'Accept-Encoding': "gzip",
     'Content-Type': "application/x-www-form-urlencoded",
     'X-Unity-Version': "2018.4.11f1",
@@ -72,7 +80,7 @@ Hr = {
 }
 
 def get_random_color():
-    colors = ["[FF0000]", "[00FF00]", "[0000FF]", "[FFFF00]", "[FF00FF]", "[00FFFF]", "[FFFFFF]", "[FFA500]", "[FFC0CB]", "[FFD700]", "[FF4500]", "[7B68EE]", "[FF1493]", "[00FA9A]"]
+    colors = ["[FF0000]", "[00FF00]", "[0000FF]", "[FFFF00]", "[FF00FF]", "[00FFFF]", "[FFFFFF]", "[FFA500]"]
     return random.choice(colors)
 
 async def EnC_Vr(N):
@@ -159,7 +167,7 @@ async def build_room_packet(room_name, key, iv):
     return await GeneRaTePk(proto_data.hex(), '0e0b', key, iv)
 
 
-# ========== LOGIN & AUTH (অপটিমাইজড) ==========
+# ========== LOGIN & AUTH ==========
 async def GeNeRaTeAccAccess(uid, password, session):
     url = "https://100067.connect.garena.com/oauth/guest/token/grant"
     headers = {
@@ -177,12 +185,12 @@ async def GeNeRaTeAccAccess(uid, password, session):
         "client_id":"100067"
     }
     try:
-        async with session.post(url, headers=headers, data=data, timeout=10) as resp:
+        async with session.post(url, headers=headers, data=data, timeout=5) as resp:
             if resp.status != 200:
                 return None, None
             data = await resp.json()
             return data.get("open_id"), data.get("access_token")
-    except Exception as e:
+    except Exception:
         return None, None
 
 async def EncRypTMajoRLoGin(open_id, access_token):
@@ -258,7 +266,7 @@ async def MajorLogin(payload, session):
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
     try:
-        async with session.post(login_url+"MajorLogin", data=payload, headers=Hr, ssl=ssl_ctx, timeout=10) as resp:
+        async with session.post(login_url+"MajorLogin", data=payload, headers=Hr, ssl=ssl_ctx, timeout=5) as resp:
             if resp.status == 200:
                 return await resp.read()
             return None
@@ -272,7 +280,7 @@ async def GetLoginData(base_url, payload, token, session):
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
     try:
-        async with session.post(f"{base_url}/GetLoginData", data=payload, headers=headers, ssl=ssl_ctx, timeout=10) as resp:
+        async with session.post(f"{base_url}/GetLoginData", data=payload, headers=headers, ssl=ssl_ctx, timeout=5) as resp:
             if resp.status == 200:
                 return await resp.read()
             return None
@@ -292,7 +300,7 @@ async def xAuThSTarTuP(TarGeT, token, timestamp, key, iv):
     return f"0115{headers}{uid_hex}{encrypted_timestamp}00000{encrypted_packet_length}{encrypted_packet}"
 
 
-# ========== ULTRA FAST BOT CLIENT ==========
+# ========== LIGHTNING FAST BOT ==========
 class FreeFireBot:
     def __init__(self, uid, password, server='bd'):
         self.uid = uid
@@ -309,67 +317,75 @@ class FreeFireBot:
         self.Nm = "Unknown"
         self.session = None
         self.room_created = False
-        self.retry_count = 0
-        self.max_retries = MAX_RETRIES
-        self.login_attempts = 0  # মোট লগইন চেষ্টা
+        self.reconnect_count = 0
+        self.last_online_time = 0
 
     async def tcp_online(self, ip, port, auth_token):
         while self.is_running:
             try:
+                # সুপার ফাস্ট কানেকশন
                 reader, writer = await asyncio.open_connection(ip, int(port))
                 writer.write(bytes.fromhex(auth_token))
                 await writer.drain()
                 self.reader = reader
                 self.online_writer = writer
                 self.is_online = True
+                self.reconnect_count = 0
+                self.last_online_time = time.time()
                 
-                # 🚀 রুম তৈরি (শুধুমাত্র একবার)
+                # রুম তৈরি (শুধু একবার)
                 if not self.room_created and self.key and self.iv:
                     selected_color = get_random_color()
-                    room_name = f"—͞{selected_color}ARIYAN"
-                    
+                    room_name = f"—͞[B]{selected_color}Ⓥ"
                     room_pkt = await build_room_packet(room_name, self.key, self.iv)
                     writer.write(room_pkt)
                     await writer.drain()
                     self.room_created = True
                     
-                    # 🎯 সফলতা মেসেজ (শুধু একবার)
                     console.print(Panel(
-                        f"[bold green]🆔 UID        ::[/bold green] {self.uid}\n"
-                        f"[bold green]👤 Nickname   ::[/bold green] {self.Nm}\n"
-                        f"[bold green]🌍 Server     ::[/bold green] [bold cyan]{self.server.upper()}[/bold cyan]\n"
-                        f"[bold green]🏠 Room Name  ::[/bold green] {room_name}\n"
-                        f"[bold green]🎨 Color     ::[/bold green] {selected_color}\n"
-                        f"[bold green]🌐 Server IP  ::[/bold green] {ip}:{port}",
-                        title="[bold bright_green]✅ ONLINE & ROOM CREATED[/bold bright_green]",
+                        f"[bold green]🆔 UID     ::[/bold green] {self.uid}\n"
+                        f"[bold green]👤 নাম     ::[/bold green] {self.Nm}\n"
+                        f"[bold green]🏠 রুম     ::[/bold green] {room_name}\n"
+                        f"[bold green]🌐 IP      ::[/bold green] {ip}:{port}",
+                        title="[bold bright_green]✅ অনলাইন[/bold bright_green]",
                         border_style="bright_green",
                         expand=False
                     ))
                 
-                # 🔄 কানেকশন লাইভ রাখা
+                # কানেকশন লাইভ রাখা - তাত্ক্ষণিক রিকানেক্টের জন্য
                 while self.is_running and self.is_online:
                     try:
-                        data = await asyncio.wait_for(self.reader.read(65536), timeout=5.0)
-                        if not data:
-                            break
+                        # দ্রুত ডেটা চেক
+                        data = await asyncio.wait_for(self.reader.read(65536), timeout=2.0)
+                        if data:
+                            # ডেটা পেলে কিছু করা যায় না
+                            pass
                     except asyncio.TimeoutError:
-                        # প্রতি ৫ সেকেন্ডে পিং পাঠানো
-                        continue
+                        # টাইমআউট হলে কানেকশন চেক
+                        if self.is_online:
+                            # সব ঠিক আছে
+                            continue
+                    except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError, OSError):
+                        # কানেকশন ড্রপ - সাথে সাথে রিকানেক্ট
+                        break
                     except Exception:
                         break
-                        
+                
+                # কানেকশন ড্রপ হলে সাথে সাথে রিকানেক্ট
+                if self.is_running:
+                    console.print(f"[yellow]🔄 UID {self.uid} - রিকানেক্ট হচ্ছে...[/yellow]")
+                
             except Exception as e:
-                console.print(Panel(
-                    f"[bold red]UID :[/bold red] {self.uid}\n[bold red]ত্রুটি:[/bold red] {e}",
-                    title=f"[bold red]❌ CONNECTION ERROR ({self.server.upper()})[/bold red]",
-                    border_style="red",
-                    expand=False
-                ))
+                if self.is_running:
+                    console.print(f"[red]⚠️ UID {self.uid} - রিকানেক্ট: {e}[/red]")
             
+            # ক্লিনআপ
             self.online_writer = None
             self.reader = None
             self.is_online = False
-            await asyncio.sleep(3)
+            
+            # তাত্ক্ষণিক রিকানেক্ট - মাত্র ০.৫ সেকেন্ড
+            await asyncio.sleep(RECONNECT_DELAY)
 
     async def tcp_chat(self, ip, port, auth_token, key, iv, ready_event):
         while self.is_running:
@@ -381,7 +397,7 @@ class FreeFireBot:
                 
                 while self.is_running:
                     try:
-                        data = await asyncio.wait_for(reader.read(4096), timeout=5.0)
+                        data = await asyncio.wait_for(reader.read(4096), timeout=2.0)
                         if not data:
                             break
                     except asyncio.TimeoutError:
@@ -391,34 +407,27 @@ class FreeFireBot:
                         
             except Exception:
                 pass
-            await asyncio.sleep(3)
+            await asyncio.sleep(RECONNECT_DELAY)
 
     async def try_login(self, session):
-        """একটি লগইন চেষ্টা করে - সফল হলে True, ব্যর্থ হলে False রিটার্ন করে"""
-        self.login_attempts += 1
-        
         try:
-            # ১. গেস্ট টোকেন
+            # ফাস্ট লগইন
             open_id, access_token = await GeNeRaTeAccAccess(self.uid, self.password, session)
             if not open_id:
                 return False
                 
-            # ২. MajorLogin
             payload = await EncRypTMajoRLoGin(open_id, access_token)
             response = await MajorLogin(payload, session)
             if not response:
                 return False
                 
-            # ৩. পার্স রেসপন্স
             auth_data = MajoRLoGinrEs_pb2.MajorLoginRes()
             auth_data.ParseFromString(response)
             
-            # ৪. GetLoginData
             login_data = await GetLoginData(auth_data.url, payload, auth_data.token, session)
             if not login_data:
                 return False
                 
-            # ৫. পার্স পোর্ট ডেটা
             port_data = PorTs_pb2.GetLoginData()
             port_data.ParseFromString(login_data)
             
@@ -426,18 +435,15 @@ class FreeFireBot:
             self.iv = auth_data.iv
             self.region = auth_data.region
             
-            # ৬. JWT থেকে নাম নেওয়া
             try:
                 dec_jwt = jwt.decode(auth_data.token, options={"verify_signature": False})
                 self.Nm = dec_jwt.get('nickname') or "Unknown"
             except Exception:
                 self.Nm = "Unknown"
             
-            # ৭. IP/Port সেট করা
             online_ip, online_port = port_data.Online_IP_Port.split(":")
             chat_ip, chat_port = port_data.AccountIP_Port.split(":")
             
-            # ৮. Auth টোকেন তৈরি
             auth_token = await xAuThSTarTuP(
                 auth_data.account_uid, 
                 auth_data.token, 
@@ -446,7 +452,6 @@ class FreeFireBot:
                 auth_data.iv
             )
             
-            # ৯. TCP কানেকশন (প্যারালেল)
             ready = asyncio.Event()
             t1 = asyncio.create_task(
                 self.tcp_chat(chat_ip, chat_port, auth_token, auth_data.key, auth_data.iv, ready)
@@ -461,60 +466,42 @@ class FreeFireBot:
             
             await asyncio.gather(t1, t2, return_exceptions=True)
             
-            return True  # সফল লগইন
+            return True
             
-        except Exception as e:
+        except Exception:
             return False
 
     async def keep_online_forever(self):
         connector = get_connector()
-        async with aiohttp.ClientSession(timeout=TIMEOUT, connector=connector) as session:
-            self.session = session
-            
-            while self.is_running:
-                # লগইন চেষ্টা
-                console.print(f"[yellow]⏳ লগইন চেষ্টা {self.login_attempts+1} - UID: {self.uid}[/yellow]")
-                login_success = await self.try_login(session)
+        semaphore = get_semaphore()
+        
+        async with semaphore:
+            async with aiohttp.ClientSession(timeout=TIMEOUT, connector=connector) as session:
+                self.session = session
                 
-                if login_success:
-                    self.retry_count = 0
-                    console.print(f"[green]✅ লগইন সফল - UID: {self.uid}[/green]")
-                else:
-                    self.retry_count += 1
-                    console.print(Panel(
-                        f"[bold yellow]🆔 UID        ::[/bold yellow] {self.uid}\n"
-                        f"[bold yellow]📝 চেষ্টা      ::[/bold yellow] {self.retry_count}/{self.max_retries}\n"
-                        f"[bold yellow]📊 মোট চেষ্টা  ::[/bold yellow] {self.login_attempts}",
-                        title="[bold yellow]⚠️ LOGIN FAILED[/bold yellow]",
-                        border_style="yellow",
-                        expand=False
-                    ))
-                    
-                    # যদি ২ বার ট্রাই ব্যর্থ হয়, তাহলে স্কিপ করে পরবর্তী আইডিতে যাবে
-                    if self.retry_count >= self.max_retries:
-                        console.print(Panel(
-                            f"[bold red]🆔 UID        ::[/bold red] {self.uid}\n"
-                            f"[bold red]📊 মোট চেষ্টা  ::[/bold red] {self.login_attempts}\n"
-                            f"[bold red]📝 স্ট্যাটাস   ::[/bold red] স্কিপ করা হয়েছে",
-                            title="[bold red]❌ SKIPPED[/bold red]",
-                            border_style="red",
-                            expand=False
-                        ))
-                        break
-                
-                # লগইন ব্যর্থ হলে ৫ সেকেন্ড অপেক্ষা
-                if not login_success:
-                    await asyncio.sleep(5)
-                else:
-                    # সফল হলে কিছুক্ষণ অপেক্ষা করে পুনরায় চেষ্টা
-                    await asyncio.sleep(30)
+                while self.is_running:
+                    try:
+                        # লগইন চেষ্টা
+                        login_success = await self.try_login(session)
+                        
+                        if login_success:
+                            console.print(f"[green]✅ UID {self.uid} - অনলাইন[/green]")
+                            # অনলাইন থাকা অবস্থায় প্রতি ২ সেকেন্ড পর চেক
+                            await asyncio.sleep(2)
+                        else:
+                            # ব্যর্থ হলে সাথে সাথে পুনরায় চেষ্টা
+                            console.print(f"[yellow]⚠️ UID {self.uid} - পুনরায় চেষ্টা...[/yellow]")
+                            await asyncio.sleep(RECONNECT_DELAY)
+                            
+                    except Exception as e:
+                        console.print(f"[red]❌ UID {self.uid} - এরর: {e}[/red]")
+                        await asyncio.sleep(RECONNECT_DELAY)
 
 
-# ========== ULTRA FAST ACCOUNT LOADER ==========
+# ========== ACCOUNT LOADER ==========
 async def load_and_start():
     accounts = []
     
-    # শুধুমাত্র বাংলাদেশ (bd.txt) ফাইল লোড করবে
     filename = "bd.txt"
     if os.path.exists(filename):
         try:
@@ -528,64 +515,53 @@ async def load_and_start():
             console.print(f"[bold red]⚠️ {filename} লোড এরর: {e}[/bold red]")
     else:
         console.print(f"[bold yellow]⚠️ {filename} ফাইল পাওয়া যায়নি![/bold yellow]")
-        console.print("[bold cyan]📝 bd.txt ফাইল তৈরি করুন এবং UID:PASSWORD যোগ করুন[/bold cyan]")
     
     return accounts
 
 
-# ========== ULTRA FAST STARTUP ==========
+# ========== STARTUP ==========
 async def main_async():
     print(render('ARIYAN', colors=['white', 'red'], align='center'))
     
-    # 🚀 ১. অ্যাকাউন্ট লোড (শুধু bd.txt)
     accounts = await load_and_start()
     if not accounts:
         console.print(Panel(
-            "[bold red]কোনো সচল আইডি পাওয়া যায়নি![/bold red]\n"
-            "অনুগ্রহ করে একই ফোল্ডারে [bold cyan]bd.txt[/bold cyan] ফাইলে UID:PASSWORD যুক্ত করুন।\n\n"
-            "উদাহরণ:\n"
-            "123456789:password123\n"
-            "987654321:password456",
-            title="[bold red]❌ NO ACCOUNTS LOADED[/bold red]",
+            "[bold red]কোনো আইডি পাওয়া যায়নি![/bold red]\n"
+            "bd.txt ফাইলে UID:PASSWORD যোগ করুন",
+            title="[bold red]❌ NO ACCOUNTS[/bold red]",
             border_style="red",
             expand=False
         ))
         return
 
-    # ২. কাউন্ট শো
     total_accounts = len(accounts)
-    bd_count = total_accounts
     
     startup_text = (
-        f"[bold cyan]👥 মোট লোড করা আইডি   ::[/bold cyan] {total_accounts} টি\n"
-        f"[bold cyan]🇧🇩 BD সার্ভার আইডি     ::[/bold cyan] {bd_count} টি\n"
-        f"[bold cyan]🔄 রিট্রাই লিমিট       ::[/bold cyan] {MAX_RETRIES} বার\n"
-        f"[bold cyan]⏱️ টাইমআউট            ::[/bold cyan] ১০ সেকেন্ড\n"
-        f"[bold cyan]🏠 রুমের নাম             ::[/bold cyan] ARIYAN\n"
-        f"[bold cyan]✨ কালার কোড প্যাটার্ন    ::[/bold cyan] র‍্যান্ডম কালার\n"
-        f"[bold cyan]🚦 সার্ভার স্ট্যাটাস       ::[/bold cyan] [bold green]🚀 ULTRA FAST BOOTING...[/bold green]"
+        f"[bold cyan]👥 মোট আইডি        ::[/bold cyan] {total_accounts} টি\n"
+        f"[bold cyan]🔢 কনকারেন্ট       ::[/bold cyan] {MAX_CONCURRENT} টি\n"
+        f"[bold cyan]⚡ রিকানেক্ট       ::[/bold cyan] {RECONNECT_DELAY} সেকেন্ড\n"
+        f"[bold cyan]💾 RAM প্রয়োজন    ::[/bold cyan] ~512MB\n"
+        f"[bold cyan]🏠 রুমের নাম       ::[/bold cyan] ARIYAN"
     )
     console.print(Panel(
         Align.center(startup_text), 
-        title="[bold red]🛡️ ARIYAN ULTRA FAST SYSTEM 🛡️[/bold red]", 
+        title="[bold red]🛡️ ARIYAN LIGHTNING FAST 🛡️[/bold red]", 
         border_style="bright_red", 
         padding=(1, 2), 
         expand=False
     ))
 
-    # 🚀 ৩. সব অ্যাকাউন্ট একসাথে স্টার্ট
+    # সব আইডি একসাথে স্টার্ট
     tasks = []
     for uid, pwd, server in accounts:
         bot = FreeFireBot(uid=uid, password=pwd, server=server)
         task = asyncio.create_task(bot.keep_online_forever())
         tasks.append(task)
-        await asyncio.sleep(0.05)  # ০.০৫ সেকেন্ড delay
+        await asyncio.sleep(0.1)
     
-    # 🚀 ৪. সব টাস্ক একসাথে রান
     await asyncio.gather(*tasks, return_exceptions=True)
 
 def main():
-    # 🚀 উইন্ডোজ/টার্মাক্সের জন্য ইভেন্ট লুপ পলিসি
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     
@@ -594,7 +570,7 @@ def main():
     try:
         loop.run_until_complete(main_async())
     except KeyboardInterrupt:
-        console.print("\n[bold red]🛑 সার্ভার বন্ধ করা হচ্ছে...[/bold red]")
+        console.print("\n[bold red]🛑 বন্ধ করা হচ্ছে...[/bold red]")
     finally:
         global connector
         if connector:
