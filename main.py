@@ -35,7 +35,7 @@ console = Console()
 login_url, ob, version = "https://loginbp.ggpolarbear.com/", "OB54", "1.126.7"
 
 # 🚀 টাইমআউট কমিয়ে দেওয়া হয়েছে (স্পিড বাড়ানোর জন্য)
-TIMEOUT = aiohttp.ClientTimeout(total=5, connect=3)
+TIMEOUT = aiohttp.ClientTimeout(total=10, connect=5)
 
 # ========== গ্লোবাল কানেক্টর (ইভেন্ট লুপের ভিতরে তৈরি হবে) ==========
 connector = None
@@ -177,12 +177,12 @@ async def GeNeRaTeAccAccess(uid, password, session):
         "client_id":"100067"
     }
     try:
-        async with session.post(url, headers=headers, data=data) as resp:
+        async with session.post(url, headers=headers, data=data, timeout=10) as resp:
             if resp.status != 200:
                 return None, None
             data = await resp.json()
             return data.get("open_id"), data.get("access_token")
-    except Exception:
+    except Exception as e:
         return None, None
 
 async def EncRypTMajoRLoGin(open_id, access_token):
@@ -258,8 +258,10 @@ async def MajorLogin(payload, session):
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
     try:
-        async with session.post(login_url+"MajorLogin", data=payload, headers=Hr, ssl=ssl_ctx) as resp:
-            return await resp.read() if resp.status==200 else None
+        async with session.post(login_url+"MajorLogin", data=payload, headers=Hr, ssl=ssl_ctx, timeout=10) as resp:
+            if resp.status == 200:
+                return await resp.read()
+            return None
     except Exception:
         return None
 
@@ -270,8 +272,10 @@ async def GetLoginData(base_url, payload, token, session):
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
     try:
-        async with session.post(f"{base_url}/GetLoginData", data=payload, headers=headers, ssl=ssl_ctx) as resp:
-            return await resp.read() if resp.status==200 else None
+        async with session.post(f"{base_url}/GetLoginData", data=payload, headers=headers, ssl=ssl_ctx, timeout=10) as resp:
+            if resp.status == 200:
+                return await resp.read()
+            return None
     except Exception:
         return None
 
@@ -305,8 +309,9 @@ class FreeFireBot:
         self.Nm = "Unknown"
         self.session = None
         self.room_created = False
-        self.retry_count = 0  # রিট্রাই কাউন্ট
+        self.retry_count = 0
         self.max_retries = MAX_RETRIES
+        self.login_attempts = 0  # মোট লগইন চেষ্টা
 
     async def tcp_online(self, ip, port, auth_token):
         while self.is_running:
@@ -319,7 +324,7 @@ class FreeFireBot:
                 self.is_online = True
                 
                 # 🚀 রুম তৈরি (শুধুমাত্র একবার)
-                if not self.room_created:
+                if not self.room_created and self.key and self.iv:
                     selected_color = get_random_color()
                     room_name = f"—͞[B]{selected_color}Ⓥ"
                     
@@ -344,10 +349,11 @@ class FreeFireBot:
                 # 🔄 কানেকশন লাইভ রাখা
                 while self.is_running and self.is_online:
                     try:
-                        data = await asyncio.wait_for(self.reader.read(65536), timeout=3.0)
+                        data = await asyncio.wait_for(self.reader.read(65536), timeout=5.0)
                         if not data:
                             break
                     except asyncio.TimeoutError:
+                        # প্রতি ৫ সেকেন্ডে পিং পাঠানো
                         continue
                     except Exception:
                         break
@@ -363,7 +369,7 @@ class FreeFireBot:
             self.online_writer = None
             self.reader = None
             self.is_online = False
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
 
     async def tcp_chat(self, ip, port, auth_token, key, iv, ready_event):
         while self.is_running:
@@ -375,7 +381,7 @@ class FreeFireBot:
                 
                 while self.is_running:
                     try:
-                        data = await asyncio.wait_for(reader.read(4096), timeout=3.0)
+                        data = await asyncio.wait_for(reader.read(4096), timeout=5.0)
                         if not data:
                             break
                     except asyncio.TimeoutError:
@@ -385,10 +391,12 @@ class FreeFireBot:
                         
             except Exception:
                 pass
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
 
     async def try_login(self, session):
         """একটি লগইন চেষ্টা করে - সফল হলে True, ব্যর্থ হলে False রিটার্ন করে"""
+        self.login_attempts += 1
+        
         try:
             # ১. গেস্ট টোকেন
             open_id, access_token = await GeNeRaTeAccAccess(self.uid, self.password, session)
@@ -459,22 +467,24 @@ class FreeFireBot:
             return False
 
     async def keep_online_forever(self):
-        # 🔥 প্রতিটি বটের জন্য আলাদা সেশন
         connector = get_connector()
         async with aiohttp.ClientSession(timeout=TIMEOUT, connector=connector) as session:
             self.session = session
             
             while self.is_running:
                 # লগইন চেষ্টা
+                console.print(f"[yellow]⏳ লগইন চেষ্টা {self.login_attempts+1} - UID: {self.uid}[/yellow]")
                 login_success = await self.try_login(session)
                 
                 if login_success:
-                    self.retry_count = 0  # সফল হলে রিট্রাই কাউন্ট রিসেট
+                    self.retry_count = 0
+                    console.print(f"[green]✅ লগইন সফল - UID: {self.uid}[/green]")
                 else:
                     self.retry_count += 1
                     console.print(Panel(
                         f"[bold yellow]🆔 UID        ::[/bold yellow] {self.uid}\n"
-                        f"[bold yellow]📝 চেষ্টা      ::[/bold yellow] {self.retry_count}/{self.max_retries}",
+                        f"[bold yellow]📝 চেষ্টা      ::[/bold yellow] {self.retry_count}/{self.max_retries}\n"
+                        f"[bold yellow]📊 মোট চেষ্টা  ::[/bold yellow] {self.login_attempts}",
                         title="[bold yellow]⚠️ LOGIN FAILED[/bold yellow]",
                         border_style="yellow",
                         expand=False
@@ -484,16 +494,20 @@ class FreeFireBot:
                     if self.retry_count >= self.max_retries:
                         console.print(Panel(
                             f"[bold red]🆔 UID        ::[/bold red] {self.uid}\n"
-                            f"[bold red]📝 স্ট্যাটাস   ::[/bold red] স্কিপ করা হয়েছে (২ বার ব্যর্থ)",
+                            f"[bold red]📊 মোট চেষ্টা  ::[/bold red] {self.login_attempts}\n"
+                            f"[bold red]📝 স্ট্যাটাস   ::[/bold red] স্কিপ করা হয়েছে",
                             title="[bold red]❌ SKIPPED[/bold red]",
                             border_style="red",
                             expand=False
                         ))
-                        break  # লুপ থেকে বের হয়ে যায় (এই আইডি স্কিপ)
+                        break
                 
-                # লগইন ব্যর্থ হলে ৩ সেকেন্ড অপেক্ষা
+                # লগইন ব্যর্থ হলে ৫ সেকেন্ড অপেক্ষা
                 if not login_success:
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(5)
+                else:
+                    # সফল হলে কিছুক্ষণ অপেক্ষা করে পুনরায় চেষ্টা
+                    await asyncio.sleep(30)
 
 
 # ========== ULTRA FAST ACCOUNT LOADER ==========
@@ -509,11 +523,12 @@ async def load_and_start():
                     line = line.strip()
                     if line and not line.startswith("#") and ":" in line:
                         uid, pwd = line.split(":")[:2]
-                        accounts.append((int(uid.strip()), pwd.strip(), "bd"))  # শুধু bd সার্ভার
+                        accounts.append((int(uid.strip()), pwd.strip(), "bd"))
         except Exception as e:
             console.print(f"[bold red]⚠️ {filename} লোড এরর: {e}[/bold red]")
     else:
         console.print(f"[bold yellow]⚠️ {filename} ফাইল পাওয়া যায়নি![/bold yellow]")
+        console.print("[bold cyan]📝 bd.txt ফাইল তৈরি করুন এবং UID:PASSWORD যোগ করুন[/bold cyan]")
     
     return accounts
 
@@ -526,7 +541,11 @@ async def main_async():
     accounts = await load_and_start()
     if not accounts:
         console.print(Panel(
-            "[bold red]কোনো সচল আইডি পাওয়া যায়নি![/bold red]\nঅনুগ্রহ করে একই ফোল্ডারে bd.txt ফাইলে UID:PASSWORD যুক্ত করুন।",
+            "[bold red]কোনো সচল আইডি পাওয়া যায়নি![/bold red]\n"
+            "অনুগ্রহ করে একই ফোল্ডারে [bold cyan]bd.txt[/bold cyan] ফাইলে UID:PASSWORD যুক্ত করুন।\n\n"
+            "উদাহরণ:\n"
+            "123456789:password123\n"
+            "987654321:password456",
             title="[bold red]❌ NO ACCOUNTS LOADED[/bold red]",
             border_style="red",
             expand=False
@@ -535,12 +554,13 @@ async def main_async():
 
     # ২. কাউন্ট শো
     total_accounts = len(accounts)
-    bd_count = total_accounts  # সবগুলোই bd
+    bd_count = total_accounts
     
     startup_text = (
         f"[bold cyan]👥 মোট লোড করা আইডি   ::[/bold cyan] {total_accounts} টি\n"
         f"[bold cyan]🇧🇩 BD সার্ভার আইডি     ::[/bold cyan] {bd_count} টি\n"
         f"[bold cyan]🔄 রিট্রাই লিমিট       ::[/bold cyan] {MAX_RETRIES} বার\n"
+        f"[bold cyan]⏱️ টাইমআউট            ::[/bold cyan] ১০ সেকেন্ড\n"
         f"[bold cyan]🏠 রুমের নাম             ::[/bold cyan] ARIYAN\n"
         f"[bold cyan]✨ কালার কোড প্যাটার্ন    ::[/bold cyan] র‍্যান্ডম কালার\n"
         f"[bold cyan]🚦 সার্ভার স্ট্যাটাস       ::[/bold cyan] [bold green]🚀 ULTRA FAST BOOTING...[/bold green]"
@@ -553,13 +573,13 @@ async def main_async():
         expand=False
     ))
 
-    # 🚀 ৩. সব অ্যাকাউন্ট একসাথে স্টার্ট (থ্রেডেড)
+    # 🚀 ৩. সব অ্যাকাউন্ট একসাথে স্টার্ট
     tasks = []
     for uid, pwd, server in accounts:
         bot = FreeFireBot(uid=uid, password=pwd, server=server)
         task = asyncio.create_task(bot.keep_online_forever())
         tasks.append(task)
-        await asyncio.sleep(0.02)  # মাত্র ০.০২ সেকেন্ড
+        await asyncio.sleep(0.05)  # ০.০৫ সেকেন্ড delay
     
     # 🚀 ৪. সব টাস্ক একসাথে রান
     await asyncio.gather(*tasks, return_exceptions=True)
@@ -576,7 +596,6 @@ def main():
     except KeyboardInterrupt:
         console.print("\n[bold red]🛑 সার্ভার বন্ধ করা হচ্ছে...[/bold red]")
     finally:
-        # কানেক্টর ক্লিনআপ
         global connector
         if connector:
             loop.run_until_complete(connector.close())
